@@ -1,0 +1,7 @@
+numpy
+torch
+matplotlib
+scipy
+scikit-learn
+fire
+tqdm
