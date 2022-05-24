@@ -18,15 +18,28 @@ __all__ = ["SVMC", "SVMC_GP"]
 
 class SVMC(Filter):
     """
-    Base class for streaming variational smc (working title) for online filtering. This base class assumes the
+    Base class for streaming variational monte carlo (SVMC) for online filtering. This base class assumes the
     following:
     x_t = f(x_{t-1}; theta) + e_t,
     y_t = g(x_t;psi) + v_t
-    The model will learn the parameters of the proposal distribution but also perform variational EM to do MLE for the
+    The model will learn the parameters of the proposal distribution but can also jointly learn the
     parameters of the emission and transition distribution.
     """
-    def __init__(self, n_pf, n_optim, d_latent, d_obs, log_like, log_dynamics, proposal, lr=0.001, _lambda=0,
+    def __init__(self, n_pf, n_optim, d_latent, d_obs, log_like, log_dynamics, proposal, lr=0.001,
                  scheme='multinomial', weight_decay=0.):
+        """
+        Constructor for SVMC class
+        :param n_pf: Number of particles used for approximating p(x_t | y_{<=t})
+        :param n_optim: Number of particles used to compute elbo for computing stochastic gradients
+        :param d_latent: Dimension of x_t
+        :param d_obs: Dimension of observation, y_t
+        :param log_like: log likelihood, log p(y_t | x_t), for generative model.
+        :param log_dynamics: log dynamics, log p(x_t | x_{t-1}), for generative model.
+        :param proposal: proposal object used to generate samples and evaluate log proposal
+        :param lr: learning rate of optimizer
+        :param scheme: string that dictates the resampling scheme
+        :param weight_decay: strength of weight decay regularizer
+        """
         super().__init__()
         self.n_pf = n_pf  # number of particle streams to keep
         self.n_optim = n_optim  # number of particles to sample when computing stochastic gradients
@@ -37,14 +50,24 @@ class SVMC(Filter):
         self.add_module("log_dynamics", log_dynamics)  # log of the transition distribution
         self.add_module("proposal", proposal)  # proposal distribution for sampling
         self.optim = Adam(self.parameters(), lr=lr, weight_decay=weight_decay)  # optimizer
-        self._lambda = _lambda
 
-    # @torch.jit.script
-    def compute_weight(self, Y, particles, W, M, U=None, beta=1, update=True):
+    def compute_weight(self, Y, particles, W, M, U=None, beta=1):
+                       # , update=True):
+        """
+        function for computing importance sampling weights
+        :param Y: 1 by d_obs tensor which is the observation of the system at time t
+        :param particles: n_pf by d_latent tensor containing the particles generated at time t-1 i.e. q(x_{t-1})
+        :param W: n_pf numpy array containing NORMALIZED importance weights from the previous time step
+        :param M: number of samples to generate from proposal
+        :param U: 1 by du tensor corresponding to external stimulus
+        :param beta: scalar used to downweight influence of dynamics model. useful for GP
+        :return:
+        """
         X = particles
         with torch.no_grad():
             # Draw ancestor variables
             ancestors = resample(W, M, self.scheme)
+
             # Select streams i.e. particles generated at the previous time instant
             x_prev = X[ancestors, :].detach()
 
@@ -61,44 +84,48 @@ class SVMC(Filter):
         log_weight = self.log_like(Y, x_samples)
         log_weight += beta * self.log_dynamics(x_samples, cat[:, :-self.d_obs])
         log_weight += gaussian_loss(x_samples, mu, torch.log(var))
-        return log_weight, x_samples, var
+        return log_weight, x_samples
 
     def elbo(self, w, max_logW):
         return max_logW + torch.log(torch.sum(w) / self.n_optim)
 
-    def loss(self, w, max_logW, var):
-        if self._lambda == 0:
-            return -self.elbo(w, max_logW)
-        else:
-            return -self.elbo(w, max_logW) + self._lambda * torch.mean(var)
+    def loss(self, w, max_logW):
+        return -self.elbo(w, max_logW)
 
     def log_sum_exp(self, logW):
         max_logW = torch.max(logW)
         w = torch.exp(logW - max_logW)
         return w, max_logW
 
-    def filter(self, Y, particles, W, iter_optim, U=None, beta=1, nongradient=False, project=False, m=1):
+    def filter(self, Y, particles, W, iter_optim, U=None, beta=1,
+               nongradient=False, project=False, n_sgd=1):
         """
+        Perform filtering step of SVMC
         :param Y: 1 by d_obs tensor which is the observation of the system at time t
         :param particles: n_pf by d_latent tensor containing the particles generated at time t-1 i.e. q(x_{t-1})
-        :param W: n_pf numpy array containing NORMALIZED weights from the previous time step
+        :param W: n_pf numpy array containing NORMALIZED importance weights from the previous time step
         :param iter_optim: number of gradient steps to take
+        :param U: 1 by du tensor corresponding to external stimulus
+        :param beta: scalar used to downweight influence of dynamics model. useful for GP
+        :param nongradient:
+        :param project: boolean flag used to determine whether projected sgd should be done
+        :param n_sgd: number of samples used to compute gradient
         :return: X, W i.e. q(x_t)
         """
+
         assert np.isclose(np.sum(W), 1, 1e-3)  # make sure the previous weights define a valid pmf
         # Optimize proposal
         if U is not None:
             U = torch.as_tensor(U)[None, :]
         if iter_optim > 0:
             self.proposal.train()
-            # loss = 0.
             for it in range(iter_optim):
                 self.optim.zero_grad()
                 loss = 0
-                for j in range(m):
-                    logW, _, var = self.compute_weight(Y[None, :], particles, W, self.n_optim, U, beta)
+                for j in range(n_sgd):  # todo: can totally parallelize this computation
+                    logW, _ = self.compute_weight(Y[None, :], particles, W, self.n_optim, U, beta)
                     w, max_logW = self.log_sum_exp(logW)  # log_sum_exp trick for numerical stability
-                    loss += self.loss(w, max_logW, var) / m  # compute lower bound
+                    loss += self.loss(w, max_logW) / n_sgd  # compute lower bound
                 loss.backward()  # compute gradient
                 self.optim.step()  # take gradient step
                 if project:
@@ -115,7 +142,7 @@ class SVMC(Filter):
         if nongradient:
             self.nongradient(particles, U)
 
-        return particles, logW.detach().numpy(), w_norm.detach().numpy()  # TODO: remove detach
+        return particles, logW.numpy(), w_norm.numpy()
 
     def forward(self, *args):
         self.filter(*args)
