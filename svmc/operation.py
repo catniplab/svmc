@@ -3,10 +3,6 @@ import torch
 
 def chol_solve(A, B):
     L = A.cholesky(upper=False)  # A = LL'
-    # X = B.potrs(L, upper=False)  # gradient not implemented
-    # A^{-1} B = (LL')^{-1} B = (L')^{-1} L^{-1} B = (L')^{-1} (L^{-1} B)
-    # C = B.trtrs(L, upper=False, transpose=False)[0]
-    # X = C.trtrs(L, upper=False, transpose=True)[0]
     X = torch.cholesky_solve(B, L)
     return X
 
