@@ -43,7 +43,7 @@ class MlpProposal(Proposal):
 
 
 class MlpOptimal(Proposal):
-    # 2 layer perceptron
+    # Gaussian proposal where mean and variance are parameterized by MLP where dynamics are also incorporated
     def __init__(self, d_in, d_hidden, d_out, dynamics, n_layers=2,
                  log_flag=True, relu_flag=True, d_stim=0):
         super().__init__()
@@ -76,7 +76,7 @@ class MlpOptimal(Proposal):
         mean = x[:, :self.d_out] + self.hidden_to_mean(hidden_layer)
         var = torch.exp(
             torch.min(self.hidden_to_tau(hidden_layer), torch.tensor(10.)))  # to avoid constrained optimization
-        if self.log:
+        if self.log_flag:
             var = torch.log(1 + var)  # to avoid constrained optimization
         return mean, var
 
@@ -90,64 +90,59 @@ class MlpOptimal(Proposal):
 
 
 class LinearProposal(Proposal):
-    # 2 layer perceptron
-    def __init__(self, d_in, d_hidden, d_out, log=True):
+    # Gaussian proposal where mean and variance are parameterized by linear layer
+    def __init__(self, d_in, d_out, log_flag=True):
         super().__init__()
         self.d_in = d_in
-        self.d_hidden = d_hidden
         self.d_out = d_out
-        self.log = log
+        self.log_flag = log_flag
 
-        # self.add_module("input_to_hidden",  nn.Linear(d_in, d_hidden))
-        self.add_module("input_to_mean",  nn.Linear(d_in, d_out))  # proposal mean
-        self.add_module("input_to_tau",  nn.Linear(d_in, 1))  # proposal variance
+        self.input_to_mean = nn.Linear(d_in, d_out)  # proposal mean readout
+        self.input_to_tau = nn.Linear(d_in, d_out)  # proposal variance readout
 
-    def get_proposal_params(self, input):
-        # hidden_layer = self.input_to_hidden(input)
-        # transform_layer = torch.tanh(hidden_layer)
-        mean = self.input_to_mean(input)
-        var = torch.exp(torch.min(self.input_to_tau(input), torch.tensor(5.)))
-        if self.log:
+    def get_proposal_params(self, x):
+        mean = self.input_to_mean(x)
+        var = torch.exp(torch.min(self.input_to_tau(x), torch.tensor(5.)))
+        if self.log_flag:
             var = torch.log(1 + var)  # to avoid constrained optimization
         return mean, var
 
-    def sample(self, input, no_samples):
-        mean, var = self.get_proposal_params(input)  # obtain mean and variance
+    def sample(self, x, no_samples):
+        mean, var = self.get_proposal_params(x)  # obtain mean and variance
         return mean + torch.sqrt(var) * torch.randn(no_samples,
                                                     self.d_out)  # return samples from N(mu(theta), var(theta)I)
 
-    def forward(self, input):
-        return self.get_proposal_params(input)
+    def forward(self, x):
+        return self.get_proposal_params(x)
 
 
 class ScaledLinearProposal(Proposal):
-    def __init__(self, d_in, d_out, log=True, bias=False):
+    def __init__(self, d_in, d_out, log_flag=True, bias_flag=False):
         super().__init__()
         self.d_in = d_in
         self.d_out = d_out
-        self.log = log
+        self.log_flag = log_flag
 
-        self.add_module("dynamics", nn.Linear(d_out, d_out, bias=bias))
-        self.register_parameter("tau_t", Parameter(torch.zeros(d_out)))
-        self.register_parameter("beta_t", Parameter(torch.zeros(d_out)))
-        self.register_parameter("mu_t", Parameter(torch.zeros(d_out)))
+        self.dynamics = nn.Linear(d_out, d_out, bias=bias_flag)
+        self.tau_t = Parameter(torch.zeros(d_out))
+        self.beta_t = Parameter(torch.zeros(d_out))
+        self.mu_t = Parameter(torch.zeros(d_out))
 
-    def get_proposal_params(self, input):
+    def get_proposal_params(self, x):
         "x_t ~ N(mu_t + diag(beta_t)*A*x_{t-1}, diag(sigma_t))"
-        mean = self.mu_t + self.beta_t * self.dynamics(input[:, :self.d_out])  # don't use observations for proposal
+        mean = self.mu_t + self.beta_t * self.dynamics(x[:, :self.d_out])  # don't use observations for proposal
         var = torch.exp(self.tau_t)  # to avoid constrained optimization
         if self.log:
             var = torch.log(1 + var)  # to avoid constrained optimization
         return mean, var
-        # return mean, var * torch.ones(mean.shape[0], 1)
 
-    def sample(self, input, no_samples):
-        mean, var = self.get_proposal_params(input)  # obtain mean and variance
+    def sample(self, x, no_samples):
+        mean, var = self.get_proposal_params(x)  # obtain mean and variance
         return mean + torch.sqrt(var) * torch.randn(no_samples,
                                                     self.d_out)  # return samples from N(mu(theta), diag(var(theta)))
 
-    def forward(self, input):
-        return self.get_proposal_params(input)
+    def forward(self, x):
+        return self.get_proposal_params(x)
 
 
 class BootstrapProposal(Proposal):
