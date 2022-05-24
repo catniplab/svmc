@@ -271,15 +271,15 @@ class SnowMan(Dynamics):
         self.r = r * torch.ones(1)
 
     def ccwring(self, x):
-        "counter-clockwise ring limit cycle"
+        """counter-clockwise ring limit cycle"""
         return torch.cat((-x[:, [1]], x[:, [0]]), 1) + x * (self.r ** 2 - x[:, [0]] ** 2 - x[:, [1]] ** 2)
 
     def cwring(self, x):
-        "clockwise ring limit cycle"
+        """clockwise ring limit cycle"""
         return torch.cat((x[:, [1]], -x[:, [0]]), 1) + x * (self.r ** 2 - x[:, [0]] ** 2 - x[:, [1]] ** 2)
 
     def mask(self, x):
-        "soft-mask over latent space"
+        """soft-mask over latent space"""
         return torch.sigmoid(100 * (x[:, [1]] - self.r))
 
     def one_step_sim(self, x):
