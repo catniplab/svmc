@@ -21,12 +21,6 @@ class Filter(Module, metaclass=ABCMeta):
     def load(self, path):
         self.load_state_dict(torch.load(path))
 
-
-class Likelihood(Module, metaclass=ABCMeta):
-    def __init__(self):
-        super().__init__()
-
-
 class Dynamics(Module, metaclass=ABCMeta):
     def __init__(self):
         super().__init__()
