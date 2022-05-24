@@ -1,4 +1,4 @@
-"Various resampling schemes for particle filters"
+"""Various resampling schemes for particle filters"""
 import numpy as np
 import numpy.random as npr
 
