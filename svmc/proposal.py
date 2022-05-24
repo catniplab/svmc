@@ -1,112 +1,46 @@
 import torch
 import torch.nn as nn
 from torch.nn import Parameter
-
 from .base import Proposal
 
 
-class MLPProposal(Proposal):
-    # 2 layer perceptron
-    def __init__(self, d_in, d_hidden, d_out, log=True):
+class MlpProposal(Proposal):
+    # Gaussian proposal where mean and variance are parameterized by MLP
+    def __init__(self, d_in, d_hidden, d_out, n_layers=2, log_flag=True, relu_flag=True):
         super().__init__()
         self.d_in = d_in
         self.d_hidden = d_hidden
         self.d_out = d_out
-        self.log = log
-        self.add_module("input_to_hidden",  nn.Linear(d_in, d_hidden))
-        self.add_module("hidden_to_mean",  nn.Linear(d_hidden, d_out))  # proposal mean
-        self.add_module("hidden_to_tau",  nn.Linear(d_hidden, d_out))  # proposal variance
+        self.log_flag = log_flag
 
-    def get_proposal_params(self, input):
-        hidden_layer = self.input_to_hidden(input)
+        self.input_to_hidden = nn.Sequential(*[nn.Linear(d_in, d_hidden)] +
+                                             sum([
+                                                 [nn.Linear(d_hidden, d_hidden),
+                                                  nn.ReLU() if relu_flag else nn.Tanh()
+                                                  ]
+                                                 for _ in range(n_layers - 1)],
+                                                 [])
+                                             )
+
+        self.hidden_to_mean = nn.Linear(d_hidden, d_out)  # proposal mean readout
+        self.hidden_to_tau = nn.Linear(d_hidden, d_out)  # proposal variance readout
+
+    def get_proposal_params(self, x):
+        hidden_layer = self.input_to_hidden(x)
         transform_layer = torch.relu(hidden_layer)
-        mean = self.hidden_to_mean(transform_layer) + input[:, :self.d_out]
-        var = torch.exp(torch.min(self.hidden_to_tau(transform_layer), torch.tensor(10.)))  # to avoid constrained optimization
-        if self.log:
+        mean = self.hidden_to_mean(transform_layer) + x[:, :self.d_out]
+        var = torch.exp(torch.min(self.hidden_to_tau(transform_layer), torch.tensor(10.)))
+        if self.log_flag:
             var = torch.log(1 + var)  # to avoid constrained optimization
         return mean, var
 
-    def sample(self, input, no_samples):
-        mean, var = self.get_proposal_params(input)  # obtain mean and variance
+    def sample(self, x, no_samples):
+        mean, var = self.get_proposal_params(x)  # obtain mean and variance
         return mean + torch.sqrt(var) * torch.randn(no_samples,
                                                     self.d_out)  # return samples from N(mu(theta), var(theta)I)
 
-    def forward(self, input):
-        return self.get_proposal_params(input)
-
-
-class DNNProposal(Proposal):
-    # MLP with K layers
-    def __init__(self, d_in, d_out, hiddens, log=False, bias=False, activation='relu', bn=False):
-        super().__init__()
-        self.numHiddenLayers = len(hiddens)  # number of hidden layers in the network
-        self.bn = bn
-        self.d_in = d_in
-        self.d_out = d_out
-        modules_mean = []
-        modules_var = []
-        for idx in range(self.numHiddenLayers):
-            if idx == 0:
-                modules_mean.append(nn.Linear(d_in, hiddens[idx], bias=bias))
-                modules_var.append(nn.Linear(d_in, hiddens[idx], bias=bias))
-            else:
-                modules_mean.append(nn.Linear(hiddens[idx - 1], hiddens[idx], bias=bias))
-                modules_var.append(nn.Linear(hiddens[idx - 1], hiddens[idx], bias=bias))
-            if activation == 'relu':
-                modules_mean.append(nn.ReLU())
-                modules_var.append(nn.ReLU())
-            else:
-                modules_mean.append(nn.Tanh())
-                modules_var.append(nn.Tanh())
-            if bn:
-                modules_mean.append(nn.BatchNorm1d(hiddens[idx]))
-                modules_var.append(nn.BatchNorm1d(hiddens[idx]))
-        modules_mean.append(nn.Linear(hiddens[-1], d_out, bias=bias))
-        modules_var.append(nn.Linear(hiddens[-1], 1, bias=bias))
-        self.mean = nn.Sequential(*modules_mean)
-        self.var = nn.Sequential(*modules_var)
-        self.log = log
-
-    def get_proposal_params(self, input):
-        mean = self.mean(input) + input[:, :self.d_out]
-        var = torch.exp(self.var(input))
-        if self.log:
-            var = torch.log(1 + var)
-        return mean, var
-
-    def forward(self, input):
-        return self.get_proposal_params(input)
-
-
-class DiagMLPProposal(Proposal):
-    # 2 layer perceptron
-    def __init__(self, d_in, d_hidden, d_out, log=True):
-        super().__init__()
-        self.d_in = d_in
-        self.d_hidden = d_hidden
-        self.d_out = d_out
-        self.log = log
-
-        self.add_module("input_to_hidden",  nn.Linear(d_in, d_hidden))
-        self.add_module("hidden_to_mean",  nn.Linear(d_hidden, d_out))  # proposal mean
-        self.add_module("hidden_to_tau",  nn.Linear(d_hidden, d_out))  # proposal variance
-
-    def get_proposal_params(self, input):
-        hidden_layer = self.input_to_hidden(input)
-        transform_layer = torch.tanh(hidden_layer)
-        mean = self.hidden_to_mean(transform_layer) + input[:, :self.d_out]
-        var = torch.exp(torch.min(self.hidden_to_tau(transform_layer), torch.tensor(10.)))  # to avoid constrained optimization
-        if self.log:
-            var = torch.log(1 + var)  # to avoid constrained optimization
-        return mean, var
-
-    def sample(self, input, no_samples):
-        mean, var = self.get_proposal_params(input)  # obtain mean and variance
-        return mean + torch.sqrt(var) * torch.randn(no_samples,
-                                                    self.d_out)  # return samples from N(mu(theta), var(theta)I)
-
-    def forward(self, input):
-        return self.get_proposal_params(input)
+    def forward(self, x):
+        return self.get_proposal_params(x)
 
 
 class MLPOptimal(Proposal):
