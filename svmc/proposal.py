@@ -123,14 +123,14 @@ class ScaledLinearProposal(Proposal):
         self.d_out = d_out
         self.log_flag = log_flag
 
-        self.dynamics = nn.Linear(d_out, d_out, bias=bias_flag)
+        self.A = nn.Linear(d_out, d_out, bias=bias_flag)
         self.tau_t = Parameter(torch.zeros(d_out))
         self.beta_t = Parameter(torch.zeros(d_out))
         self.mu_t = Parameter(torch.zeros(d_out))
 
     def get_proposal_params(self, x):
         "x_t ~ N(mu_t + diag(beta_t)*A*x_{t-1}, diag(sigma_t))"
-        mean = self.mu_t + self.beta_t * self.dynamics(x[:, :self.d_out])  # don't use observations for proposal
+        mean = self.mu_t + self.beta_t * self.A(x[:, :self.d_out])  # don't use observations for proposal
         var = torch.exp(self.tau_t)  # to avoid constrained optimization
         if self.log:
             var = torch.log(1 + var)  # to avoid constrained optimization
@@ -152,53 +152,52 @@ class BootstrapProposal(Proposal):
         self.d_in = d_in
         self.d_out = d_out
         self.d_obs = d_obs  # used to remove observation appended to the input
-        self.var = var * torch.ones(1)
-        # self.register_parameter("var", Parameter(var * torch.ones(1).squeeze()))
+        self.var = var
         self.dynamics = dynamics  # function handle of the true dynamics
 
-    def get_proposal_params(self, input):
-        mean = self.dynamics(input[:, :-self.d_obs])
+    def get_proposal_params(self, x):
+        mean = self.dynamics(x[:, :-self.d_obs])
         var = self.var
         return mean, var
 
-    def sample(self, input, no_samples):
-        mean, var = self.get_proposal_params(input)  # obtain mean and variance
+    def sample(self, x, no_samples):
+        mean, var = self.get_proposal_params(x)  # obtain mean and variance
         return mean + torch.sqrt(var) * torch.randn(no_samples,
                                                     self.d_out)  # return samples from N(mu(theta), var(theta)I)
 
-    def forward(self, input):
-        return self.get_proposal_params(input)
+    def forward(self, x):
+        return self.get_proposal_params(x)
 
 
 class AffineBootstrapProposal(Proposal):
     """Proposal mean is an affine transformation of the dynamics"""
-    def __init__(self, d_in, d_out, d_obs, dynamics, log=True, bias=False):
+    def __init__(self, d_in, d_out, d_obs, dynamics, log_flag=True, bias_flag=False):
         super().__init__()
         self.d_in = d_in
         self.d_out = d_out
         self.d_obs = d_obs  # used to remove observation appended to the input
         self.dynamics = dynamics  # function handle of the true dynamics
-        self.log = log
+        self.log_flag = log_flag
 
-        self.add_module("A", nn.Linear(d_out, d_out, bias=bias))
-        self.register_parameter("tau_t", Parameter(torch.zeros(1).squeeze()))
-        self.register_parameter("beta_t", Parameter(torch.zeros(d_out)))
-        self.register_parameter("mu_t", Parameter(torch.zeros(d_out)))
+        self.A = nn.Linear(d_out, d_out, bias=bias_flag)
+        self.tau_t = Parameter(torch.zeros(d_out))
+        self.beta_t = Parameter(torch.zeros(d_out))
+        self.mu_t = Parameter(torch.zeros(d_out))
 
-    def get_proposal_params(self, input):
-        mean = self.mu_t + self.beta_t * self.A(self.dynamics(input[:, :-self.d_obs]))  # don't use observations for proposal
+    def get_proposal_params(self, x):
+        mean = self.mu_t + self.beta_t * self.A(self.dynamics(x[:, :-self.d_obs]))  # don't use observations for proposal
         var = torch.exp(self.tau_t)  # to avoid constrained optimization
-        if self.log:
+        if self.log_flag:
             var = torch.log(1 + var)  # to avoid constrained optimization
         return mean, var * torch.ones(mean.shape[0], 1)
 
-    def sample(self, input, no_samples):
-        mean, var = self.get_proposal_params(input)  # obtain mean and variance
+    def sample(self, x, no_samples):
+        mean, var = self.get_proposal_params(x)  # obtain mean and variance
         return mean + torch.sqrt(var) * torch.randn(no_samples,
                                                     self.d_out)  # return samples from N(mu(theta), var(theta)I)
 
-    def forward(self, input):
-        return self.get_proposal_params(input)
+    def forward(self, x):
+        return self.get_proposal_params(x)
 
 
 class DiffusingInducingProposal(Proposal):
@@ -206,5 +205,5 @@ class DiffusingInducingProposal(Proposal):
         self.sgp = sgp
         self.diffusion = diffusion
 
-    def forward(self, *input):
+    def forward(self, *x):
         return self.sgp.qz.mean, self.sgp.qz.cov + torch.diag(self.diffusion)
