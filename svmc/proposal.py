@@ -1,10 +1,9 @@
 import torch
 import torch.nn as nn
 from torch.nn import Parameter
-from .base import Proposal
 
 
-class MlpProposal(Proposal):
+class MlpProposal(nn.Module):
     # Gaussian proposal where mean and variance are parameterized by MLP
     def __init__(self, d_in, d_hidden, d_out, n_layers=2, log_flag=True, relu_flag=True):
         super().__init__()
@@ -42,7 +41,7 @@ class MlpProposal(Proposal):
         return self.get_proposal_params(x)
 
 
-class MlpOptimal(Proposal):
+class MlpOptimal(nn.Module):
     # Gaussian proposal where mean and variance are parameterized by MLP where dynamics are also incorporated
     def __init__(self, d_in, d_hidden, d_out, dynamics, n_layers=2,
                  log_flag=True, relu_flag=True, d_stim=0):
@@ -89,7 +88,7 @@ class MlpOptimal(Proposal):
         return self.get_proposal_params(x)
 
 
-class LinearProposal(Proposal):
+class LinearProposal(nn.Module):
     # Gaussian proposal where mean and variance are parameterized by linear layer
     def __init__(self, d_in, d_out, log_flag=True):
         super().__init__()
@@ -116,7 +115,7 @@ class LinearProposal(Proposal):
         return self.get_proposal_params(x)
 
 
-class ScaledLinearProposal(Proposal):
+class ScaledLinearProposal(nn.Module):
     def __init__(self, d_in, d_out, log_flag=True, bias_flag=False):
         super().__init__()
         self.d_in = d_in
@@ -145,7 +144,7 @@ class ScaledLinearProposal(Proposal):
         return self.get_proposal_params(x)
 
 
-class BootstrapProposal(Proposal):
+class BootstrapProposal(nn.Module):
     """Proposal used to run a bootstrap particle filter"""
     def __init__(self, d_in, d_out, d_obs, var, dynamics):
         super().__init__()
@@ -169,7 +168,7 @@ class BootstrapProposal(Proposal):
         return self.get_proposal_params(x)
 
 
-class AffineBootstrapProposal(Proposal):
+class AffineBootstrapProposal(nn.Module):
     """Proposal mean is an affine transformation of the dynamics"""
     def __init__(self, d_in, d_out, d_obs, dynamics, log_flag=True, bias_flag=False):
         super().__init__()
@@ -200,7 +199,7 @@ class AffineBootstrapProposal(Proposal):
         return self.get_proposal_params(x)
 
 
-class DiffusingInducingProposal(Proposal):
+class DiffusingInducingProposal(nn.Module):
     def __init__(self, sgp, diffusion):
         self.sgp = sgp
         self.diffusion = diffusion

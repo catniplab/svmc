@@ -4,12 +4,12 @@ from torch.distributions import MultivariateNormal as mvn
 from torch.distributions import Normal
 from torch.distributions import StudentT
 from torch.nn import Parameter
-from .metric import  gaussian_loss
-from .base import Likelihood
 from torch.distributions import Poisson
 
+from .metric import  gaussian_loss
 
-class ISOGaussian(Likelihood):
+
+class ISOGaussian(nn.Module):
     """Isotropic Gaussian likelihood, y ~ N(Cx+D, rI)"""
     def __init__(self, d_obs, d_in, log=True, bias=True):
         super().__init__()
@@ -39,7 +39,7 @@ class ISOGaussian(Likelihood):
         return self.compute_log_weight(y, x)
 
 
-class DiagGaussian(Likelihood):
+class DiagGaussian(nn.Module):
     """Isotropic Gaussian likelihood, y ~ N(Cx+D, RR') where R is a diagonal matrix"""
     def __init__(self, d_obs, d_in, log=True, mask_flag=False, normalize=False, bias=True):
         super().__init__()
@@ -52,7 +52,7 @@ class DiagGaussian(Likelihood):
         self.mask = torch.ones((d_obs, d_in))  # masking matrix
 
         if mask_flag:
-            "Constrain loading matrix to be upper triangular"
+            # Constrain loading matrix to be upper triangular
             for j in range(d_in - 1):
                 self.mask[j, j + 1:] = torch.zeros(d_in - 1 - j)
         self.input_to_output.weight.data *= self.mask  # Make upper triangular
@@ -77,7 +77,7 @@ class DiagGaussian(Likelihood):
         return self.compute_log_weight(y, x)
 
     def project_unit_norm(self):
-        "Project onto the manifold of unit column norm matrices"
+        """Project onto the manifold of unit column norm matrices"""
         with torch.no_grad():
             "No gradients are needed!"
             self.input_to_output.weight.data *= self.mask  # Make upper triangular  # TODO: Might not need this...
@@ -85,8 +85,8 @@ class DiagGaussian(Likelihood):
             self.input_to_output.weight.data /= norm.unsqueeze(0)  # make weights have unit column norm
 
 
-class ISOStudentT(Likelihood):
-    "Isotropic Student's T distribution"
+class ISOStudentT(nn.Module):
+    """Isotropic Student's T distribution"""
     def __init__(self, d_obs, d_in, bias=False, df=2, log=True):
         super().__init__()
         self.d_in = d_in
@@ -111,7 +111,7 @@ class ISOStudentT(Likelihood):
         return self.compute_log_weight(y, x)
 
 
-class ISOGaussianNorm(Likelihood):
+class ISOGaussianNorm(nn.Module):
     """Isotropic Gaussian likelihood, y ~ N(Cx+D, rI)"""
     def __init__(self, d_obs, d_in, log=True):
         super().__init__()
@@ -138,8 +138,8 @@ class ISOGaussianNorm(Likelihood):
         return self.compute_log_weight(y, x)
 
 
-class Bern(Likelihood):
-    "Bernoulli Likelihood, y ~ Bern(p) where p=sigmoid(Cx)"
+class Bern(nn.Module):
+    """Bernoulli Likelihood, y ~ Bern(p) where p=sigmoid(Cx)"""
     def __init__(self, d_obs, d_in):
         super().__init__()
         self.d_in = d_in  # dimension of latent space
@@ -157,7 +157,7 @@ class Bern(Likelihood):
         return self.compute_log_weight(y, x)
 
 
-class NarendraLiObsv(Likelihood):
+class NarendraLiObsv(nn.Module):
     "Likelihood used in Narendra-Li system"
     def __init__(self):
         super().__init__()
@@ -185,8 +185,8 @@ class NarendraLiObsvT(NarendraLiObsv):
 
 
 # TODO: Do we need the masking matrix? If we initialize the loading matrix to be 0, will the gradient for those elements also be 0?
-class PoissLike(Likelihood):
-    "y_t ~ Poiss(r) r = exp(Cx)"
+class PoissLike(nn.Module):
+    """y_t ~ Poiss(r) r = exp(Cx)"""
     def __init__(self, dy, dx, mask_flag=False, normalize=False):
         super().__init__()
         self.d_obs = dy
@@ -195,7 +195,7 @@ class PoissLike(Likelihood):
         self.mask = torch.ones((dy, dx))  # masking matrix
 
         if mask_flag:
-            "Constrain loading matrix to be upper triangular"
+            # Constrain loading matrix to be upper triangular"
             for j in range(dx - 1):
                 self.mask[j, j + 1:] = torch.zeros(dx - 1 - j)
         self.C.weight.data *= self.mask  # Make upper triangular
@@ -212,9 +212,9 @@ class PoissLike(Likelihood):
         return self.compute_log_weight(y, x)
 
     def project_unit_norm(self):
-        "Project onto the manifold of unit column norm matrices"
+        """Project onto the manifold of unit column norm matrices"""
         with torch.no_grad():
-            "No gradients are needed!"
+            # No gradients are needed!
             self.C.weight.data *= self.mask  # Make upper triangular  # TODO: Might not need this...
             norm = torch.sqrt(torch.sum(self.C.weight.data ** 2, 0))  # obtain column norms
             self.C.weight.data /= norm.unsqueeze(0)  # make weights have unit column norm
