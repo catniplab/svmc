@@ -13,7 +13,8 @@ class MlpProposal(Proposal):
         self.d_out = d_out
         self.log_flag = log_flag
 
-        self.input_to_hidden = nn.Sequential(*[nn.Linear(d_in, d_hidden)] +
+        self.input_to_hidden = nn.Sequential(*[nn.Linear(d_in, d_hidden),
+                                               nn.ReLU() if relu_flag else nn.Tanh()] +
                                              sum([
                                                  [nn.Linear(d_hidden, d_hidden),
                                                   nn.ReLU() if relu_flag else nn.Tanh()
@@ -21,15 +22,13 @@ class MlpProposal(Proposal):
                                                  for _ in range(n_layers - 1)],
                                                  [])
                                              )
-
         self.hidden_to_mean = nn.Linear(d_hidden, d_out)  # proposal mean readout
         self.hidden_to_tau = nn.Linear(d_hidden, d_out)  # proposal variance readout
 
     def get_proposal_params(self, x):
         hidden_layer = self.input_to_hidden(x)
-        transform_layer = torch.relu(hidden_layer)
-        mean = self.hidden_to_mean(transform_layer) + x[:, :self.d_out]
-        var = torch.exp(torch.min(self.hidden_to_tau(transform_layer), torch.tensor(10.)))
+        mean = x[:, :self.d_out] + self.hidden_to_mean(hidden_layer)
+        var = torch.exp(torch.min(self.hidden_to_tau(hidden_layer), torch.tensor(10.)))
         if self.log_flag:
             var = torch.log(1 + var)  # to avoid constrained optimization
         return mean, var
@@ -43,45 +42,51 @@ class MlpProposal(Proposal):
         return self.get_proposal_params(x)
 
 
-class MLPOptimal(Proposal):
+class MlpOptimal(Proposal):
     # 2 layer perceptron
-    def __init__(self, d_in, d_hidden, d_out, dynamics, log=True, d_stim=0, normalize=True):
+    def __init__(self, d_in, d_hidden, d_out, dynamics, n_layers=2,
+                 log_flag=True, relu_flag=True, d_stim=0):
         super().__init__()
         self.d_in = d_in
         self.d_stim = d_stim
         self.d_hidden = d_hidden
         self.d_out = d_out
-        self.log = log
+        self.log_flag = log_flag
         self.dynamics = dynamics
         self.loc = torch.zeros(1, d_in)
         self.scale = torch.ones(1, d_in)
 
-        self.add_module("input_to_hidden", nn.Linear(d_in, d_hidden))
-        self.add_module("hidden_to_mean", nn.Linear(d_hidden, d_out))  # proposal mean
-        self.add_module("hidden_to_tau", nn.Linear(d_hidden, d_out))  # proposal variance
+        self.input_to_hidden = nn.Sequential(*[nn.Linear(d_in, d_hidden),
+                                               nn.ReLU() if relu_flag else nn.Tanh()] +
+                                              sum([
+                                                  [nn.Linear(d_hidden, d_hidden),
+                                                   nn.ReLU() if relu_flag else nn.Tanh()
+                                                   ]
+                                                  for _ in range(n_layers - 1)],
+                                                  [])
+                                             )
+        self.hidden_to_mean = nn.Linear(d_hidden, d_out)  # proposal mean readout
+        self.hidden_to_tau = nn.Linear(d_hidden, d_out)  # proposal variance readout
 
-    def get_proposal_params(self, input):
-        z = torch.cat((self.dynamics(input[:, :self.d_out + self.d_stim]),
-                                                       input[:, self.d_out + self.d_stim:]), 1)
-        z = (z - self.loc) / self.scale
+    def get_proposal_params(self, x):
+        z = torch.cat((self.dynamics(x[:, :self.d_out + self.d_stim]),
+                       x[:, self.d_out + self.d_stim:]), 1)
+        # z = (z - self.loc) / self.scale
         hidden_layer = self.input_to_hidden(z)
-        # hidden_layer = self.input_to_hidden(torch.cat((self.dynamics(input[:, :self.d_out + self.d_stim]),
-        #                                                input[:, self.d_out + self.d_stim:]), 1))
-        transform_layer = torch.relu(hidden_layer)
-        mean = self.hidden_to_mean(transform_layer) + input[:, :self.d_out]
+        mean = x[:, :self.d_out] + self.hidden_to_mean(hidden_layer)
         var = torch.exp(
-            torch.min(self.hidden_to_tau(transform_layer), torch.tensor(10.)))  # to avoid constrained optimization
+            torch.min(self.hidden_to_tau(hidden_layer), torch.tensor(10.)))  # to avoid constrained optimization
         if self.log:
             var = torch.log(1 + var)  # to avoid constrained optimization
         return mean, var
 
-    def sample(self, input, no_samples):
-        mean, var = self.get_proposal_params(input)  # obtain mean and variance
+    def sample(self, x, no_samples):
+        mean, var = self.get_proposal_params(x)  # obtain mean and variance
         return mean + torch.sqrt(var) * torch.randn(no_samples,
                                                     self.d_out)  # return samples from N(mu(theta), var(theta)I)
 
-    def forward(self, input):
-        return self.get_proposal_params(input)
+    def forward(self, x):
+        return self.get_proposal_params(x)
 
 
 class MLPPoissProposal(Proposal):
