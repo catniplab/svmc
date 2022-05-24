@@ -127,7 +127,7 @@ class SVMC(Filter):
                 loss.backward()  # compute gradient
                 self.optim.step()  # take gradient step
                 if project:
-                    "Project onto your favorite manifold"
+                    # Project onto your favorite manifold
                     self.log_like.project_unit_norm()
 
         # Filter one step forward
@@ -209,7 +209,7 @@ class SVMC_GP(SVMC):
         mu, var = self.proposal(cat)
         x_samples = mu + torch.sqrt(var) * torch.randn(M, self.d_latent)
 
-        "Compute unnormalized log weights"
+        # Compute unnormalized log weights
         log_weight = self.log_like(Y, x_samples)  # compute contribution from log-likelihood
         log_weight += gaussian_loss(x_samples, mu, torch.log(var))  # compute contribution from proposal
 
