@@ -5,7 +5,6 @@ Torch matrices are M by Dim
 import numpy as np
 import torch
 import copy
-from torch.nn.utils import clip_grad_norm_
 from torch.optim import Adam
 
 from .base import Filter
@@ -52,7 +51,6 @@ class SVMC(Filter):
         self.optim = Adam(self.parameters(), lr=lr, weight_decay=weight_decay)  # optimizer
 
     def compute_weight(self, Y, particles, W, M, U=None, beta=1):
-                       # , update=True):
         """
         function for computing importance sampling weights
         :param Y: 1 by d_obs tensor which is the observation of the system at time t
@@ -161,27 +159,37 @@ class SVMC(Filter):
 
 class SVMC_GP(SVMC):
     """
-    Streaming variational smc for learning sparse GP-SSM online.
+    SVMC where sparse GP prior is placed on dynamics
     x_t = f(x_{t-1}) + e_t, f ~ GP(0, K)
     y_t = g(x_t) + v_t
     z_1, .., z_M are inducing points
     u_1, ..., u_M are inputs for inducing points
     """
+    def __init__(self, n_pf, n_optim, d_latent, d_obs, log_like, proposal, rz, lr=0.001,
+                 scheme='multinomial', weight_decay=0., gp_diffusion=1e-2):
 
-    def __init__(self, n_pf, n_optim, d_latent, d_obs, log_like, proposal, rz, lr=0.001, _lambda=0,
-                 scheme='multinomial', gp_diffusion=1e-2):
         """
-        :param log_like: log likelihood function with parameters that may need to be optimized
-        :param proposal: proposal distribution with parameters that need to be optimized
-        :param lr: learning rate to use for optimizer
+        Constructor for SVMC_GP
+        :param n_pf: Number of particles used for approximating p(x_t | y_{<=t})
+        :param n_optim: Number of particles used to compute elbo for computing stochastic gradients
+        :param d_latent: Dimension of x_t
+        :param d_obs: Dimension of observation, y_t
+        :param log_like: log likelihood, log p(y_t | x_t), for generative model.
+        :param proposal: proposal object used to generate samples and evaluate log proposal
+        :param rz: proposal for inducing points
+        :param lr: learning rate of optimizer
+        :param scheme: string that dictates the resampling scheme
+        :param weight_decay: strength of weight decay regularizer
+        :param gp_diffusion: magnitude of variance for diffusion process on inducing points
         """
-        super().__init__(n_pf, n_optim, d_latent, d_obs, log_like, NullDynamics(), proposal, lr, _lambda, scheme)
+        super().__init__(n_pf=n_pf, n_optim=n_optim, d_latent=d_latent, d_obs=d_obs,
+                         log_like=log_like, log_dynamics=NullDynamics(), proposal=proposal,
+                         lr=lr, scheme=scheme, weight_decay=weight_decay)
         self.z_proposals = rz
-        self.z_proposal = rz
         self.optim = Adam(self.parameters(), lr=lr)  # optimizer
         self.gp_diffusion = torch.tensor(gp_diffusion)
 
-    def compute_weight(self, Y, particles, W, M, U=None, beta=1, update=True):
+    def compute_weight(self, Y, particles, W, M, U=None, beta=1):
         X, _, z_proposals = particles
 
         with torch.no_grad():
