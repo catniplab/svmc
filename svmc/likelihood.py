@@ -1,10 +1,8 @@
 import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal as mvn
-from torch.distributions import Normal
-from torch.distributions import StudentT
+from torch.distributions import Normal, StudentT, Poisson
 from torch.nn import Parameter
-from torch.distributions import Poisson
 
 from .metric import  gaussian_loss
 
