@@ -2,7 +2,6 @@ import torch
 from torch.distributions import MultivariateNormal, Normal
 from torch.nn import Linear, Parameter
 import numpy as np
-
 from .operation import kron
 from .gp import SGP
 from .covfun import CovarianceFunction
