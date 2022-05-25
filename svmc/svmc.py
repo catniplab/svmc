@@ -133,7 +133,7 @@ class SVMC(Filter):
         # Filter one step forward
         with torch.no_grad():
             self.proposal.eval()
-            logW, particles, _ = self.compute_weight(Y, particles, W, self.n_pf, U, beta, nongradient)
+            logW, particles = self.compute_weight(Y, particles, W, self.n_pf, U, beta)
             w, _ = self.log_sum_exp(logW)  # log_sum_exp trick for numerical stability
             w_norm = w / torch.sum(w)  # normalize the weights
 
