@@ -340,3 +340,34 @@ class MLPDynamics(Dynamics):
         if self.log_flag:
             var = torch.log(1 + var)
         return mu + torch.sqrt(var) * torch.randn(mu.shape)
+
+
+class BootstrapDynamics(Dynamics):
+    def __init__(self, d_in, d_out, dynamics, log_flag=False):
+        super().__init__()
+        self.d_in = d_in
+        self.d_out = d_out
+        self.dynamics = dynamics
+        self.log_flag = log_flag
+        self.register_parameter("tau", Parameter(0.1 * torch.randn(d_in)))  # noise is from isotropic Gaussian
+
+    def log_weight(self, xt, x):
+        mean = self.dynamics(x)
+        var = torch.exp(self.tau)
+        if self.log_flag:
+            var = torch.log(1 + var)
+        log_weight = torch.sum(Normal(loc=mean, scale=torch.sqrt(var)).log_prob(xt), -1)
+        return log_weight
+
+    def forward(self, xt, x):
+        return self.log_weight(xt, x)
+
+    def one_step_sim(self, x):
+        return self.dynamics(x)
+
+    def sample(self, x):
+        mu = self.one_step_sim(x)
+        var = torch.exp(self.tau)
+        if self.log_flag:
+            var = torch.log(1 + var)
+        return mu + torch.sqrt(var) * torch.randn(mu.shape)
