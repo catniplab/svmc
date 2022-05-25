@@ -1,6 +1,6 @@
 import torch
 from torch.distributions import MultivariateNormal, Normal
-from torch.nn import Linear, Parameter
+from torch.nn import Linear, Parameter, Sequential, ReLU, Tanh
 import numpy as np
 from .operation import kron
 from .gp import SGP
@@ -11,10 +11,10 @@ from .metric import gaussian_loss
 
 class LDS(Dynamics):
     """Linear dynamical system, x_t = Ax_{t-1} + B  + e_t, e_t ~ N(0, sI)"""
-    def __init__(self, d_latent, log=True):
+    def __init__(self, d_latent, log_flag=True):
         super().__init__()
         self.d_latent = d_latent  # dimension of latent dynamics
-        self.log = log
+        self.log_flag = log_flag
         self.add_module("trans_matrix", Linear(d_latent, d_latent))  # [A, B]
         self.register_parameter("tau", Parameter(torch.zeros(1)))  # noise is from isotropic Gaussian
 
@@ -45,7 +45,7 @@ class LDS(Dynamics):
 
         # compute isotropic covariance matrix
         var = torch.exp(self.tau)
-        if self.log:
+        if self.log_flag:
             var = torch.log(1 + var)
 
         return mean + torch.sqrt(var) * torch.randn(1, self.d_latent)
@@ -53,19 +53,19 @@ class LDS(Dynamics):
 
 class DiagLDS(Dynamics):
     """Linear dynamical system, x_t = Ax_{t-1} + B  + e_t, e_t ~ N(0, diag(s))"""
-    def __init__(self, d_latent, log=True):
+    def __init__(self, d_latent, log_flag=True):
         super().__init__()
         self.d_latent = d_latent  # dimension of latent dynamics
-        self.log = log
+        self.log_flag = log_flag
         self.add_module("trans_matrix", Linear(d_latent, d_latent))  # [A, B]
         self.register_parameter("tau", Parameter(torch.zeros(d_latent)))  # noise is from isotropic Gaussian
 
     def log_weight(self, xt, x):
         mean = self.trans_matrix(x)
 
-        # compute diaginal covariance matrix
+        # compute diagonal covariance matrix
         var = torch.exp(self.tau)
-        if self.log:
+        if self.log_flag:
             var = torch.log(1 + var)
 
         # Evaluate log density
@@ -82,7 +82,7 @@ class DiagLDS(Dynamics):
     def sample(self, x):
         mean = self.trans_matrix(x)
 
-        # compute isotropic covariance matrix
+        # compute covariance matrix
         var = torch.exp(self.tau)
         if self.log:
             var = torch.log(1 + var)
@@ -219,12 +219,8 @@ class NarendraLi(Dynamics):
         mu = self.one_step_sim(x, u)
         return mu + torch.sqrt(self.cov) @ torch.randn(self.d_latent)
 
-    def bootstrap(self, input):
-        # mu = torch.zeros(input.shape[0], self.d_latent)
-        #
-        # for n in range(input.shape[0]):
-        #     mu[n, :] = self.one_step_sim(input[n, :-1], input[n, -1])
-        return self.one_step_sim(input[:, :-1], input[:, -1])
+    def bootstrap(self, x):
+        return self.one_step_sim(x[:, :-1], x[:, -1])
 
 
 class VanillaRNN(Dynamics):
@@ -255,11 +251,8 @@ class VanillaRNN(Dynamics):
         mu = self.one_step_sim(x)
         return mu + torch.sqrt(self.var) * torch.randn(self.d_latent)
 
-    def bootstrap(self, input):
-        # mu = torch.zeros(input.shape[0], self.d_latent)
-        # for n in range(input.shape[0]):
-        #     mu[n, :] = self.one_step_sim(input[n, :])
-        return self.one_step_sim(input)
+    def bootstrap(self, x):
+        return self.one_step_sim(x)
 
 
 class SnowMan(Dynamics):
@@ -303,40 +296,47 @@ class SnowMan(Dynamics):
     def forward(self, x_curr, x_prev):
         return self.log_weight(x_curr, x_prev)
 
-    def bootstrap(self, input):
-        return self.one_step_sim(input)
+    def bootstrap(self, x):
+        return self.one_step_sim(x)
 
 
 class MLPDynamics(Dynamics):
-    def __init__(self, d_in, d_hidden, d_out, log=False):
+    def __init__(self, d_in, d_hidden, d_out,
+                 n_layers=2, log_flag=True, relu_flag=True):
         super().__init__()
         self.d_in = d_in
         self.d_out = d_out
-        self.add_module('W', torch.nn.Linear(d_in, d_hidden))
-        self.add_module('W_mean', torch.nn.Linear(d_hidden, d_out))
-        self.log = log
+
+        self.input_to_mean = Sequential(*[Linear(d_in, d_hidden),
+                                          ReLU() if relu_flag else Tanh()] +
+                                         sum([
+                                             [Linear(d_hidden, d_hidden),
+                                              ReLU() if relu_flag else Tanh()
+                                              ]
+                                             for _ in range(n_layers - 1)],
+                                             [])
+                                        + [Linear(d_hidden, d_out)]
+                                        )
+        self.log_flag = log_flag
         self.register_parameter("tau", Parameter(0.1 * torch.randn(d_in)))  # noise is from isotropic Gaussian
 
     def log_weight(self, xt, x):
-        temp = torch.tanh(self.W(x))
-        mean = self.W_mean(temp)
+        mean = x + self.input_to_mean(x)
         var = torch.exp(self.tau)
-        if self.log:
+        if self.log_flag:
             var = torch.log(1 + var)
-        log_weight = MultivariateNormal(loc=mean + x, covariance_matrix=var * torch.eye(self.d_out)).log_prob(xt)
+        log_weight = MultivariateNormal(loc=mean, covariance_matrix=var * torch.eye(self.d_out)).log_prob(xt)
         return log_weight
 
     def forward(self, xt, x):
         return self.log_weight(xt, x)
 
     def one_step_sim(self, x):
-        temp = torch.tanh(self.W(x))
-        mean = self.W_mean(temp)
-        return mean + x
+        return x + self.input_to_mean(x)
 
     def sample(self, x):
         mu = self.one_step_sim(x)
         var = torch.exp(self.tau)
-        if self.log:
+        if self.log_flag:
             var = torch.log(1 + var)
         return mu + torch.sqrt(var) * torch.randn(mu.shape)
