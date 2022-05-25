@@ -326,8 +326,6 @@ class MLPDynamics(Dynamics):
         if self.log_flag:
             var = torch.log(1 + var)
         log_weight = torch.sum(Normal(loc=mean, scale=torch.sqrt(var)).log_prob(xt), -1)
-        # log_weight = MultivariateNormal(loc=mean,
-        #                                 covariance_matrix=var * torch.eye(self.d_out)).log_prob(xt)
         return log_weight
 
     def forward(self, xt, x):
