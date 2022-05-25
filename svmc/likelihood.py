@@ -4,16 +4,16 @@ from torch.distributions import MultivariateNormal as mvn
 from torch.distributions import Normal, StudentT, Poisson
 from torch.nn import Parameter
 
-from .metric import  gaussian_loss
+from .metric import gaussian_loss
 
 
 class ISOGaussian(nn.Module):
     """Isotropic Gaussian likelihood, y ~ N(Cx+D, rI)"""
-    def __init__(self, d_obs, d_in, log=True, bias=True):
+    def __init__(self, d_obs, d_in, log_flag=True, bias=True):
         super().__init__()
         self.d_in = d_in
         self.d_obs = d_obs
-        self.log = log
+        self.log_flag = log_flag
 
         self.add_module("input_to_output", nn.Linear(d_in, d_obs, bias=bias))
         self.register_parameter("tau", Parameter(torch.zeros(1)))
@@ -23,14 +23,11 @@ class ISOGaussian(nn.Module):
 
         # compute isotropic covariance matrix
         var = torch.exp(self.tau)
-        if self.log:
+        if self.log_flag:
             var = torch.log(1 + var)
 
         # Evaluate log density
         log_weight = torch.sum(Normal(loc=mean, scale=torch.sqrt(var)).log_prob(y), -1)
-        # log_weight1 = torch.sum(Normal(loc=mean, scale=torch.sqrt(var)).log_prob(y), -1)
-        # log_weight2 = -gaussian_loss(y, mean, torch.log(var))
-        # log_weight = mvn(loc=mean, covariance_matrix=var * torch.eye(self.d_obs)).log_prob(y)
         return log_weight
 
     def forward(self, y, x):
@@ -38,12 +35,12 @@ class ISOGaussian(nn.Module):
 
 
 class DiagGaussian(nn.Module):
-    """Isotropic Gaussian likelihood, y ~ N(Cx+D, RR') where R is a diagonal matrix"""
-    def __init__(self, d_obs, d_in, log=True, mask_flag=False, normalize=False, bias=True):
+    """Diagonal Gaussian likelihood, y ~ N(Cx+D, RR') where R is a diagonal matrix"""
+    def __init__(self, d_obs, d_in, log_flag=True, mask_flag=False, normalize=False, bias=True):
         super().__init__()
         self.d_in = d_in
         self.d_obs = d_obs
-        self.log = log
+        self.log_flag = log_flag
 
         self.add_module("input_to_output", nn.Linear(d_in, d_obs, bias=bias))
         self.register_parameter("tau", Parameter(torch.zeros(d_obs)))
@@ -62,13 +59,11 @@ class DiagGaussian(nn.Module):
 
         # compute diagonal covariance matrix
         var = torch.exp(self.tau)
-        if self.log:
+        if self.log_flag:
             var = torch.log(1 + var)
 
         # Evaluate log density
-        log_weight1 = torch.sum(Normal(loc=mean, scale=torch.sqrt(var)).log_prob(y), -1)
-        log_weight2 = -gaussian_loss(mean, torch.log(var), y)
-        log_weight = mvn(loc=mean, covariance_matrix=torch.diag(var)).log_prob(y)
+        log_weight = torch.sum(Normal(loc=mean, scale=torch.sqrt(var)).log_prob(y), -1)
         return log_weight
 
     def forward(self, y, x):
@@ -85,11 +80,11 @@ class DiagGaussian(nn.Module):
 
 class ISOStudentT(nn.Module):
     """Isotropic Student's T distribution"""
-    def __init__(self, d_obs, d_in, bias=False, df=2, log=True):
+    def __init__(self, d_obs, d_in, bias=False, df=2, log_flag=True):
         super().__init__()
         self.d_in = d_in
         self.d_obs = d_obs
-        self.log = log
+        self.log_flag = log_flag
         self.df = df
         self.add_module("input_to_output", nn.Linear(d_in, d_obs, bias=bias))
         self.register_parameter("tau", Parameter(torch.zeros(1)))
@@ -99,7 +94,7 @@ class ISOStudentT(nn.Module):
 
         # compute isotropic covariance matrix
         var = torch.exp(self.tau)
-        if self.log:
+        if self.log_flag:
             var = torch.log(1 + var)
 
         log_weight = torch.sum(StudentT(loc=mean, df=self.df, scale=var).log_prob(y), dim=-1)
@@ -125,11 +120,11 @@ class ISOGaussianNorm(nn.Module):
 
         # compute isotropic covariance matrix
         var = torch.exp(self.tau)
-        if self.log:
+        if self.log_flag:
             var = torch.log(1 + var)
 
         # Evaluate log density
-        log_weight = mvn(loc=mean, covariance_matrix=var * torch.eye(self.d_obs)).log_prob(y)
+        log_weight = torch.sum(Normal(loc=mean, scale=torch.sqrt(var)).log_prob(y), -1)
         return log_weight
 
     def forward(self, y, x):
