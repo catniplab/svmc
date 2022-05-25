@@ -1,24 +1,6 @@
 import torch
 
 
-def chol_solve(A, B):
-    L = A.cholesky(upper=False)  # A = LL'
-    X = torch.cholesky_solve(B, L)
-    return X
-
-
-def qr_solve(A, B):
-    # QRx = b => x = R^{-1} Q'b
-    Q, R = torch.qr(A)
-    X = (Q.t() @ B).triangular_solve(R)[0]
-    return X
-
-
-def lu_solve(A, B):
-    X, _ = torch.solve(B, A)
-    return X
-
-
 def sqrt(x, eps=1e-12):
     """Safe-gradient square root"""
     return torch.sqrt(x + eps)
