@@ -6,14 +6,11 @@ from abc import ABCMeta
 import numpy as np
 import torch
 from torch.nn import Module, Parameter
+from torch.linalg import solve
 
 from .covfun import CovarianceFunction
-from .operation import (
-    lu_solve as solve,
-)  # solve by Cholesky (possibly singular) or QR (gradient is unsupported)
-
-# from .operation import chol_solve as solve
 from .operation import kron, yakron
+
 
 __all__ = ["GP", "SGP", "predict", "update"]
 
