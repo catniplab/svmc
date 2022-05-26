@@ -13,4 +13,4 @@ def compute_mse(X_true, X_particles, w_norm):
 def compute_elbo(weights):
     w_mean = torch.mean(weights, -1)
     elbo = torch.log(torch.cumprod(w_mean, 0))
-    return elbo
+    return elbo / torch.arange(1, w_mean.shape[0] + 1)
