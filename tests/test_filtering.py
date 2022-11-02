@@ -34,7 +34,7 @@ for t in range(T):
 fig = plt.figure()
 ax = fig.add_subplot(111)
 ax.plot(x[:, 0], x[:, 1])
-fig.show()
+plt.show()
 
 # In[]
 "Generate observations, y"
@@ -48,7 +48,7 @@ y = x[1:] @ C + D + math.sqrt(var_obs) * torch.randn(T, d_obs)
 fig = plt.figure()
 ax = fig.add_subplot(111)
 [ax.plot(y[:, d]) for d in range(d_obs)]
-fig.show()
+plt.show()
 
 # In[]
 "set up likelihood"
@@ -202,4 +202,4 @@ ax.plot(opt_mse[1:], label='SVMC Opt')
 ax.legend()
 
 fig.tight_layout()
-fig.show()
+plt.show()

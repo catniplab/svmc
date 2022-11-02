@@ -5,12 +5,13 @@ from torch.nn import Parameter
 
 class MlpProposal(nn.Module):
     # Gaussian proposal where mean and variance are parameterized by MLP
-    def __init__(self, d_in, d_hidden, d_out, n_layers=2, log_flag=True, relu_flag=True):
+    def __init__(self, d_in, d_hidden, d_out, n_layers=2, log_flag=True, relu_flag=True, resnet=True):
         super().__init__()
         self.d_in = d_in
         self.d_hidden = d_hidden
         self.d_out = d_out
         self.log_flag = log_flag
+        self.resnet = resnet
 
         self.input_to_hidden = nn.Sequential(*[nn.Linear(d_in, d_hidden),
                                                nn.ReLU() if relu_flag else nn.Tanh()] +
@@ -26,7 +27,9 @@ class MlpProposal(nn.Module):
 
     def get_proposal_params(self, x):
         hidden_layer = self.input_to_hidden(x)
-        mean = x[:, :self.d_out] + self.hidden_to_mean(hidden_layer)
+        mean = self.hidden_to_mean(hidden_layer)
+        if self.resnet:
+            mean = x[:, :self.d_out] + mean
         var = torch.exp(torch.min(self.hidden_to_tau(hidden_layer), torch.tensor(10.)))
         if self.log_flag:
             var = torch.log(1 + var)  # to avoid constrained optimization
