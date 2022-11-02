@@ -217,7 +217,7 @@ class SVMC_GP(SVMC):
         for m in range(M):
             log_weight[m] += z_proposals[m].log_weight(x_prev[[m], :], x_samples[[m], :], u=U)
 
-        return log_weight, (x_samples, x_prev.detach(), z_proposals), var
+        return log_weight, (x_samples, x_prev.detach(), z_proposals)
 
     def nongradient(self, particles, U=None):
         with torch.no_grad():
